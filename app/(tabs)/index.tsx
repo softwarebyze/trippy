@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect, useCallback } from "react";
+import React, { useRef } from "react";
 import {
   Dimensions,
   StyleSheet,
@@ -6,6 +6,14 @@ import {
   PanResponder,
   GestureResponderEvent,
 } from "react-native";
+import {
+  useSharedValue,
+  useDerivedValue,
+  runOnJS,
+  withRepeat,
+  withTiming,
+  useAnimatedReaction,
+} from "react-native-reanimated";
 import {
   Canvas,
   Circle,
@@ -43,14 +51,27 @@ function createParticle(x: number, y: number, color: string) {
 }
 
 export default function TrippySkia() {
-  const [particles, setParticles] = useState<any[]>([]);
-  const [gradientIdx, setGradientIdx] = useState(0);
-  const animationRef = useRef<number>();
+  // Use a shared value for the particle array
+  const particles = useSharedValue<any[]>([]);
+  // Use a shared value for the gradient index
+  const gradientIdx = useSharedValue(0);
 
-  // Animation loop
-  const animate = useCallback(() => {
-    setParticles((prev) =>
-      prev
+  // Animate gradient
+  React.useEffect(() => {
+    gradientIdx.value = withRepeat(
+      withTiming(palette.length, { duration: 32000 }),
+      -1,
+      false
+    );
+  }, []);
+
+  // Animate particles with Reanimated
+  useAnimatedReaction(
+    () => particles.value,
+    (current, prev) => {
+      // This runs on the UI thread
+      if (!current) return;
+      const next = current
         .map((p) => {
           // Swirl effect
           const angle =
@@ -64,39 +85,27 @@ export default function TrippySkia() {
           p.life -= p.decay;
           return p;
         })
-        .filter((p) => p.life > 0.05 && p.radius > 2)
-    );
-    animationRef.current = requestAnimationFrame(animate);
-  }, []);
-
-  useEffect(() => {
-    animationRef.current = requestAnimationFrame(animate);
-    return () => {
-      if (animationRef.current) cancelAnimationFrame(animationRef.current);
-    };
-  }, [animate]);
-
-  // Animate gradient
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setGradientIdx((idx) => (idx + 1) % palette.length);
-    }, 4000);
-    return () => clearInterval(interval);
-  }, []);
+        .filter((p) => p.life > 0.05 && p.radius > 2);
+      particles.value = next;
+    },
+    []
+  );
 
   // Touch handler
   const handleTouch = (evt: GestureResponderEvent) => {
     const { locationX: x, locationY: y } = evt.nativeEvent;
-    setParticles((prev) => [
-      ...prev,
-      ...Array.from({ length: 10 }, () =>
-        createParticle(
-          x + (Math.random() - 0.5) * 20,
-          y + (Math.random() - 0.5) * 20,
-          palette[Math.floor(Math.random() * palette.length)]
-        )
-      ),
-    ]);
+    runOnJS(() => {
+      particles.value = [
+        ...particles.value,
+        ...Array.from({ length: 10 }, () =>
+          createParticle(
+            x + (Math.random() - 0.5) * 20,
+            y + (Math.random() - 0.5) * 20,
+            palette[Math.floor(Math.random() * palette.length)]
+          )
+        ),
+      ];
+    })();
   };
 
   const panResponder = useRef(
@@ -107,9 +116,32 @@ export default function TrippySkia() {
     })
   ).current;
 
-  // Gradient colors
-  const gradA = palette[gradientIdx];
-  const gradB = palette[(gradientIdx + 1) % palette.length];
+  // Derived gradient colors
+  const gradA = useDerivedValue(() => {
+    const idx = Math.floor(gradientIdx.value) % palette.length;
+    return palette[idx];
+  }, [gradientIdx]);
+  const gradB = useDerivedValue(() => {
+    const idx = (Math.floor(gradientIdx.value) + 1) % palette.length;
+    return palette[idx];
+  }, [gradientIdx]);
+
+  // Derived particles for rendering
+  const renderParticles = useDerivedValue(() => {
+    return particles.value.map((p, i) => (
+      <Group key={i}>
+        <Circle
+          cx={p.pos.x}
+          cy={p.pos.y}
+          r={p.radius}
+          color={p.color}
+          opacity={p.life * 0.7}
+        >
+          <BlurMask blur={32} style="solid" />
+        </Circle>
+      </Group>
+    ));
+  }, [particles]);
 
   return (
     <View style={styles.container} {...panResponder.panHandlers}>
@@ -118,22 +150,10 @@ export default function TrippySkia() {
           <LinearGradient
             start={vec(0, 0)}
             end={vec(width, height)}
-            colors={[gradA, gradB]}
+            colors={[gradA.value, gradB.value]}
           />
         </Paint>
-        {particles.map((p, i) => (
-          <Group key={i}>
-            <Circle
-              cx={p.pos.x}
-              cy={p.pos.y}
-              r={p.radius}
-              color={p.color}
-              opacity={p.life * 0.7}
-            >
-              <BlurMask blur={32} style="solid" />
-            </Circle>
-          </Group>
-        ))}
+        {renderParticles.value}
       </Canvas>
     </View>
   );
