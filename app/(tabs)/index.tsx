@@ -8,6 +8,7 @@ import Animated, {
   interpolateColor,
 } from "react-native-reanimated";
 import { Gyroscope } from "expo-sensors";
+import Svg, { G, Path, Defs, RadialGradient, Stop } from "react-native-svg";
 
 const { width, height } = Dimensions.get("window");
 
@@ -20,6 +21,62 @@ const colors = [
   "#ff0066",
   "#00ff99",
 ];
+
+function Kaleidoscope({
+  progress,
+}: {
+  progress: Animated.SharedValue<number>;
+}) {
+  // Animated rotation and morph
+  const animatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [
+        { rotate: `${progress.value * 2 * Math.PI}rad` },
+        { scale: 1.2 + 0.2 * Math.sin(progress.value * Math.PI * 2) },
+      ],
+      opacity: 0.7,
+    };
+  });
+
+  // SVG kaleidoscope pattern
+  return (
+    <Animated.View
+      style={[StyleSheet.absoluteFill, animatedStyle]}
+      pointerEvents="none"
+    >
+      <Svg width={width} height={height}>
+        <Defs>
+          <RadialGradient id="grad" cx="50%" cy="50%" r="50%">
+            <Stop offset="0%" stopColor="#fff" stopOpacity="0.2" />
+            <Stop offset="100%" stopColor="#000" stopOpacity="0.1" />
+          </RadialGradient>
+        </Defs>
+        <G>
+          {[...Array(8)].map((_, i) => (
+            <Path
+              key={i}
+              d={`M${width / 2},${height / 2} L${
+                width / 2 + Math.cos((i * Math.PI) / 4) * width
+              } ${height / 2 + Math.sin((i * Math.PI) / 4) * height} Q${
+                width / 2 + Math.cos(((i + 0.5) * Math.PI) / 4) * (width / 2)
+              } ${
+                height / 2 + Math.sin(((i + 0.5) * Math.PI) / 4) * (height / 2)
+              } ${width / 2},${height / 2}`}
+              fill={`url(#grad)`}
+              stroke={`hsl(${i * 45 + progress.value * 360}, 100%, 60%)`}
+              strokeWidth={
+                8 + 8 * Math.abs(Math.sin(progress.value * Math.PI * 2 + i))
+              }
+              opacity={
+                0.5 + 0.5 * Math.abs(Math.cos(progress.value * Math.PI * 2 + i))
+              }
+            />
+          ))}
+        </G>
+      </Svg>
+    </Animated.View>
+  );
+}
 
 export default function TrippyScreen() {
   // For swirling background
@@ -125,6 +182,7 @@ export default function TrippyScreen() {
   return (
     <View style={styles.container} {...panResponder.panHandlers}>
       <Animated.View style={[StyleSheet.absoluteFill, bgStyle]} />
+      <Kaleidoscope progress={progress} />
       <Animated.View style={rippleStyle} pointerEvents="none" />
       <Animated.View style={shapeStyle} pointerEvents="none" />
     </View>
